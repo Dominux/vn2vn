@@ -3,7 +3,7 @@ import shutil
 import os
 from uuid import UUID
 
-from filetypes import FileType
+from vn2vn.filetypes import FileType
 
 
 class VNExtractor:
