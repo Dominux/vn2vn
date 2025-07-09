@@ -17,7 +17,7 @@ class VNExtractor:
         input_full_path = self._build_full_path(id, FileType.InputVN)
         output_full_path = self._build_full_path(id, FileType.InputAudio)
 
-        cmd = f'ffmpeg -y -i {input_full_path} -map 0:a -acodec libmp3lame {output_full_path}'
+        cmd = f'ffmpeg -y -i {input_full_path} {output_full_path}'
         os.system(cmd)
 
     def _build_full_path(self, id: UUID, filetype: FileType):

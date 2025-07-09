@@ -1,7 +1,8 @@
-from io import BytesIO
+import wave
 
 import torch
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
+import numpy as np
 
 torch_dtype = torch.bfloat16 # set your preferred type here
 
@@ -38,12 +39,19 @@ def gen_speech2text():
 
     # read your wav file into variable wav. For example:
 
-    wav = BytesIO()
-    with open('/tmp/vn2vn/6d0d5ffe-cccc-4268-8858-6518c0fa85ca/input_audio.mp3', 'rb') as f:
-        wav.write(f.read())
-    wav.seek(0)
+    with wave.open('/tmp/vn2vn/6d0d5ffe-cccc-4268-8858-6518c0fa85ca/input_audio.wav', 'rb') as f:
+        samples = f.getnframes()
+        audio = f.readframes(samples)
+
+    # Convert buffer to float32 using NumPy
+    audio = np.frombuffer(audio, dtype=np.float32)
+    # audio_as_np_float32 = audio_as_np_int16.astype(np.float32)
+
+    # Normalise float32 array so that values are between -1.0 and +1.0
+    max_int16 = 2**15
+    audio = audio / max_int16
 
     # get the transcription
-    asr = asr_pipeline(wav, generate_kwargs={"language": "russian", "max_new_tokens": 256}, return_timestamps=False)
+    asr = asr_pipeline(audio, generate_kwargs={"language": "russian", "max_new_tokens": 256}, return_timestamps=False)
 
     print(asr['text'])
