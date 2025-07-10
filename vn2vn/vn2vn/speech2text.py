@@ -1,57 +1,49 @@
-import wave
+import gc
 
+import whisperx
 import torch
-from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
-import numpy as np
 
-torch_dtype = torch.bfloat16 # set your preferred type here
 
+device = "cuda"
 
 
 def gen_speech2text():
-    device = 'cpu'
-    if torch.cuda.is_available():
-        device = 'cuda'
-    elif torch.backends.mps.is_available():
-        device = 'mps'
-        setattr(torch.distributed, "is_initialized", lambda : False) # monkey patching
-    device = torch.device(device)
+    audio_file = "/tmp/vn2vn/6d0d5ffe-cccc-4268-8858-6518c0fa85ca/input_audio.wav"
+    batch_size = 16 # reduce if low on GPU mem
+    compute_type = "float16" # change to "int8" if low on GPU mem (may reduce accuracy)
 
-    whisper = WhisperForConditionalGeneration.from_pretrained(
-        "antony66/whisper-large-v3-russian", torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True,
-        # add attn_implementation="flash_attention_2" if your GPU supports it
-    )
+    # 1. Transcribe with original whisper (batched)
+    model = whisperx.load_model("large-v2", device, compute_type=compute_type)
 
-    processor = WhisperProcessor.from_pretrained("antony66/whisper-large-v3-russian")
+    # save model to local path (optional)
+    # model_dir = "/path/"
+    # model = whisperx.load_model("large-v2", device, compute_type=compute_type, download_root=model_dir)
 
-    asr_pipeline = pipeline(
-        "automatic-speech-recognition",
-        model=whisper,
-        tokenizer=processor.tokenizer,
-        feature_extractor=processor.feature_extractor,
-        max_new_tokens=256,
-        chunk_length_s=30,
-        batch_size=16,
-        return_timestamps=True,
-        torch_dtype=torch_dtype,
-        device=device,
-    )
+    audio = whisperx.load_audio(audio_file)
+    result = model.transcribe(audio, batch_size=batch_size)
+    print(result["segments"]) # before alignment
 
-    # read your wav file into variable wav. For example:
+    # delete model if low on GPU resources
+    gc.collect()
+    torch.cuda.empty_cache()
+    del model
 
-    with wave.open('/tmp/vn2vn/6d0d5ffe-cccc-4268-8858-6518c0fa85ca/input_audio.wav', 'rb') as f:
-        samples = f.getnframes()
-        audio = f.readframes(samples)
+    # 2. Align whisper output
+    model_a, metadata = whisperx.load_align_model(language_code='ru', device=device)
+    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
-    # Convert buffer to float32 using NumPy
-    audio = np.frombuffer(audio, dtype=np.float32)
-    # audio_as_np_float32 = audio_as_np_int16.astype(np.float32)
+    print(result["segments"]) # after alignment
 
-    # Normalise float32 array so that values are between -1.0 and +1.0
-    max_int16 = 2**15
-    audio = audio / max_int16
+    # delete model if low on GPU resources
+    # import gc; import torch; gc.collect(); torch.cuda.empty_cache(); del model_a
 
-    # get the transcription
-    asr = asr_pipeline(audio, generate_kwargs={"language": "russian", "max_new_tokens": 256}, return_timestamps=False)
+    # 3. Assign speaker labels
+    # diarize_model = whisperx.diarize.DiarizationPipeline(use_auth_token=YOUR_HF_TOKEN, device=device)
 
-    print(asr['text'])
+    # add min/max number of speakers if known
+    # diarize_segments = diarize_model(audio)
+    # diarize_model(audio, min_speakers=min_speakers, max_speakers=max_speakers)
+
+    # result = whisperx.assign_word_speakers(diarize_segments, result)
+    # print(diarize_segments)
+    # print(result["segments"]) # segments are now assigned speaker IDs
